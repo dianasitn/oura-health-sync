@@ -4,7 +4,8 @@ const dayjs = require('dayjs');
 class ReportGenerator {
   constructor(apiKey) {
     this.genAI = new GoogleGenerativeAI(apiKey);
-    this.model = this.genAI.getGenerativeModel({ model: 'gemini-2.0-flash' });
+    // Use gemini-1.5-flash - better free tier limits than 2.0
+    this.model = this.genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
   }
 
   buildContext(ouraData, date) {
@@ -16,12 +17,11 @@ class ReportGenerator {
     const stress    = (ouraData.daily_stress || []).find(x => x.day === d) || {};
     const spo2      = (ouraData.daily_spo2 || []).find(x => x.day === d) || {};
     const workouts  = (ouraData.workout || []).filter(x => x.day === d);
-    return {
-      date: d,
-      sleep: { score: sleep.score, total_hours: sleepDet.total_sleep_duration ? +(sleepDet.total_sleep_duration/3600).toFixed(1) : null, avg_hrv: sleepDet.average_hrv, deep_sleep_min: sleepDet.deep_sleep_duration ? Math.round(sleepDet.deep_sleep_duration/60) : null, rem_sleep_min: sleepDet.rem_sleep_duration ? Math.round(sleepDet.rem_sleep_duration/60) : null, efficiency_pct: sleepDet.efficiency, lowest_hr: sleepDet.lowest_heart_rate },
-      readiness: { score: readiness.score, temp_deviation: readiness.temperature_deviation, contributors: readiness.contributors || {} },
-      activity: { score: activity.score, steps: activity.steps, active_calories: activity.active_calories, high_activity_min: activity.high_activity_time ? Math.round(activity.high_activity_time/60) : null },
-      stress: { stress_high_min: stress.stress_high ? Math.round(stress.stress_high/60) : null, recovery_high_min: stress.recovery_high ? Math.round(stress.recovery_high/60) : null, summary: stress.day_summary },
+    return { date: d,
+      sleep: { score: sleep.score, total_hours: sleepDet.total_sleep_duration ? +(sleepDet.total_sleep_duration/3600).toFixed(1) : null, avg_hrv: sleepDet.average_hrv, deep_sleep_min: sleepDet.deep_sleep_duration ? Math.round(sleepDet.deep_sleep_duration/60) : null, efficiency_pct: sleepDet.efficiency, lowest_hr: sleepDet.lowest_heart_rate },
+      readiness: { score: readiness.score, temp_deviation: readiness.temperature_deviation },
+      activity: { score: activity.score, steps: activity.steps, active_calories: activity.active_calories },
+      stress: { stress_high_min: stress.stress_high ? Math.round(stress.stress_high/60) : null, summary: stress.day_summary },
       spo2: { avg_pct: spo2.spo2_percentage?.average },
       workouts: workouts.map(w => ({ activity: w.activity, duration_min: w.duration ? Math.round(w.duration/60) : null }))
     };
@@ -29,23 +29,16 @@ class ReportGenerator {
 
   async generate(ouraData, date, previousDayData = null) {
     const ctx = this.buildContext(ouraData, date);
-    const prev = previousDayData ? this.buildContext(previousDayData, dayjs(date).subtract(1, 'day').format('YYYY-MM-DD')) : null;
-    const prompt = `Analyze Oura Ring data for ${ctx.date}. Return ONLY valid JSON health report in Russian.
-DATA: ${JSON.stringify(ctx)}
-${prev ? 'PREV: ' + JSON.stringify(prev) : ''}
-JSON fields: date, overall_status(Ð¾ÑÐ»Ð¸ÑÐ½Ð¾/ÑÐ¾ÑÐ¾ÑÐ¾/ÑÐ´Ð¾Ð²Ð»ÐµÑÐ²Ð¾ÑÐ¸ÑÐµÐ»ÑÐ½Ð¾/Ð¿Ð»Ð¾ÑÐ¾), overall_emoji(ð¢/ð¡/ð /ð´), headline(max 80 chars), scores{sleep,readiness,activity}, key_insights[3 strings with numbers], sleep_summary, recovery_summary, activity_summary, stress_recovery_balance, recommendations[3], compared_to_yesterday, highlight_metric{label,value,note}, concern_metric{label,value,note}`;
-    try {
-      const result = await this.model.generateContent(prompt);
-      const text = result.response.text().trim().replace(/```json|\n```|```/g, '');
-      const match = text.match(/\{[\s\S]*\}/);
-      if (!match) throw new Error('No JSON in response');
-      const report = JSON.parse(match[0]);
-      report.generated_at = new Date().toISOString();
-      return report;
-    } catch(err) {
-      console.error('[Gemini] Error:', err.message);
-      return { date: ctx.date, overall_status: 'unknown', overall_emoji: 'âª', headline: 'ÐÐ°Ð½Ð½ÑÐµ Ð¿Ð¾Ð»ÑÑÐµÐ½Ñ', scores: {}, key_insights: [], error: err.message, generated_at: new Date().toISOString() };
-    }
+    const prompt = `Health data for ${ctx.date}. Return ONLY valid JSON in Russian.
+Data: ${JSON.stringify(ctx)}
+Required JSON: {date, overall_status(отлично/хорошо/удовлетворительно/плохо), overall_emoji(🟢/🟡/🟠/🔴), headline(max 80 chars in Russian), scores:{sleep,readiness,activity}, key_insights:[3 strings in Russian with numbers], sleep_summary(2 sentences in Russian), recovery_summary(2 sentences in Russian), activity_summary(2 sentences in Russian), recommendations:[3 strings in Russian], highlight_metric:{label,value,note}, concern_metric:{label,value,note}}`;
+    const result = await this.model.generateContent(prompt);
+    const text = result.response.text().replace(/```json|\n```|```/g,'').trim();
+    const match = text.match(/\{[\s\S]*\}/);
+    if (!match) throw new Error('No JSON');
+    const report = JSON.parse(match[0]);
+    report.generated_at = new Date().toISOString();
+    return report;
   }
 }
 module.exports = ReportGenerator;
