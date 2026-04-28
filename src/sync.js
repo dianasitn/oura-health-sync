@@ -44,7 +44,7 @@ async function runSync(options = {}) {
       const startDate = dayjs().subtract(historicalDays, 'day');
       for (let i = 0; i < historicalDays; i++) {
         const d = startDate.add(i, 'day').format('YYYY-MM-DD');
-        if (storage.load(d)) { console.log('  Skip ' + d + ' (exists)'); continue; }
+        // Always regenerate
         try {
           const report = await generator.generate(ouraData, d, null);
           storage.save(report);
