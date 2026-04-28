@@ -4,7 +4,7 @@ const dayjs = require('dayjs');
 class ReportGenerator {
   constructor(apiKey) {
     this.genAI = new GoogleGenerativeAI(apiKey);
-    this.model = this.genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
+    this.model = this.genAI.getGenerativeModel({ model: 'gemini-2.0-flash' });
   }
 
   buildContext(ouraData, date) {
@@ -33,7 +33,7 @@ class ReportGenerator {
     const prompt = `Analyze Oura Ring data for ${ctx.date}. Return ONLY valid JSON health report in Russian.
 DATA: ${JSON.stringify(ctx)}
 ${prev ? 'PREV: ' + JSON.stringify(prev) : ''}
-JSON fields: date, overall_status(отлично/хорошо/удовлетворительно/плохо), overall_emoji(🟢/🟡/🟠/🔴), headline(max 80 chars), scores{sleep,readiness,activity}, key_insights[3 strings with numbers], sleep_summary, recovery_summary, activity_summary, stress_recovery_balance, recommendations[3], compared_to_yesterday, highlight_metric{label,value,note}, concern_metric{label,value,note}`;
+JSON fields: date, overall_status(Ð¾ÑÐ»Ð¸ÑÐ½Ð¾/ÑÐ¾ÑÐ¾ÑÐ¾/ÑÐ´Ð¾Ð²Ð»ÐµÑÐ²Ð¾ÑÐ¸ÑÐµÐ»ÑÐ½Ð¾/Ð¿Ð»Ð¾ÑÐ¾), overall_emoji(ð¢/ð¡/ð /ð´), headline(max 80 chars), scores{sleep,readiness,activity}, key_insights[3 strings with numbers], sleep_summary, recovery_summary, activity_summary, stress_recovery_balance, recommendations[3], compared_to_yesterday, highlight_metric{label,value,note}, concern_metric{label,value,note}`;
     try {
       const result = await this.model.generateContent(prompt);
       const text = result.response.text().trim().replace(/```json|\n```|```/g, '');
@@ -44,7 +44,7 @@ JSON fields: date, overall_status(отлично/хорошо/удовлетво
       return report;
     } catch(err) {
       console.error('[Gemini] Error:', err.message);
-      return { date: ctx.date, overall_status: 'unknown', overall_emoji: '⚪', headline: 'Данные получены', scores: {}, key_insights: [], error: err.message, generated_at: new Date().toISOString() };
+      return { date: ctx.date, overall_status: 'unknown', overall_emoji: 'âª', headline: 'ÐÐ°Ð½Ð½ÑÐµ Ð¿Ð¾Ð»ÑÑÐµÐ½Ñ', scores: {}, key_insights: [], error: err.message, generated_at: new Date().toISOString() };
     }
   }
 }
