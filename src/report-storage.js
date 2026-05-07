@@ -1,54 +1,14 @@
-const fs = require('fs');
-const path = require('path');
+require('dotenv').config();
+const {InfluxDB,Point}=require('@influxdata/influxdb-client');
+const client=new InfluxDB({url:process.env.INFLUX_URL,token:process.env.INFLUX_TOKEN});
+const org=process.env.INFLUX_ORG,bucket=process.env.INFLUX_BUCKET;
 
-const REPORTS_DIR = path.join(__dirname, '..', 'data', 'reports');
+async function save(r){const w=client.getWriteApi(org,bucket,'ns');w.writePoint(new Point('oura_report').timestamp(new Date(r.date+'T12:00:00Z').getTime()*1e6).tag('date',r.date).stringField('json',JSON.stringify(r)));await w.close();console.log('[DB] Saved '+r.date);}
 
-function ensureDir() {
-  if (!fs.existsSync(REPORTS_DIR)) {
-    fs.mkdirSync(REPORTS_DIR, { recursive: true });
-  }
-}
+async function load(date){const rows=[];await new Promise((res,rej)=>client.getQueryApi(org).queryRows('from(bucket:"'+bucket+'") |> range(start:-400d) |> filter(fn:(r)=>r._measurement=="oura_report" and r.date=="'+date+'") |> last()',{next(row,m){rows.push(m.toObject(row))},error:rej,complete:res}));return rows.length?JSON.parse(rows[0]._value):null;}
 
-function save(report) {
-  ensureDir();
-  const file = path.join(REPORTS_DIR, `${report.date}.json`);
-  fs.writeFileSync(file, JSON.stringify(report, null, 2));
-  console.log(`[Storage] Saved report → ${file}`);
-}
+async function listAll(){const rows=[];await new Promise((res,rej)=>client.getQueryApi(org).queryRows('from(bucket:"'+bucket+'") |> range(start:-400d) |> filter(fn:(r)=>r._measurement=="oura_report") |> group(columns:["date"]) |> last() |> sort(columns:["date"],desc:true)',{next(row,m){rows.push(m.toObject(row))},error:rej,complete:res}));return rows.map(r=>{const d=JSON.parse(r._value);return{date:d.date,overall_status:d.overall_status,overall_emoji:d.overall_emoji,headline:d.headline,scores:d.scores,generated_at:d.generated_at};});}
 
-function load(date) {
-  const file = path.join(REPORTS_DIR, `${date}.json`);
-  if (!fs.existsSync(file)) return null;
-  return JSON.parse(fs.readFileSync(file, 'utf8'));
-}
+async function loadLatest(n=7){const all=await listAll();return all.slice(0,n).map(r=>JSON.parse(JSON.stringify(r)));}
 
-function listAll() {
-  ensureDir();
-  return fs.readdirSync(REPORTS_DIR)
-    .filter(f => f.endsWith('.json'))
-    .sort()
-    .reverse()
-    .map(f => {
-      const content = JSON.parse(fs.readFileSync(path.join(REPORTS_DIR, f), 'utf8'));
-      return {
-        date: content.date,
-        overall_status: content.overall_status,
-        overall_emoji: content.overall_emoji,
-        headline: content.headline,
-        scores: content.scores,
-        generated_at: content.generated_at
-      };
-    });
-}
-
-function loadLatest(n = 7) {
-  ensureDir();
-  return fs.readdirSync(REPORTS_DIR)
-    .filter(f => f.endsWith('.json'))
-    .sort()
-    .reverse()
-    .slice(0, n)
-    .map(f => JSON.parse(fs.readFileSync(path.join(REPORTS_DIR, f), 'utf8')));
-}
-
-module.exports = { save, load, listAll, loadLatest };
+module.exports={save,load,listAll,loadLatest};
